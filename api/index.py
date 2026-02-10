@@ -5,7 +5,6 @@ import json
 
 app = FastAPI()
 
-# Allow CORS biar bot lo bisa akses
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,9 +18,13 @@ def get_ydl_opts(download=False):
         'noplaylist': True,
         'quiet': True,
         'no_warnings': True,
+        'nocheckcertificate': True, # Bypass SSL
+        'geo_bypass': True,        # Bypass regional block
         'extract_flat': not download,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
         }
     }
 
@@ -30,7 +33,6 @@ async def search(q: str = Query(..., description="Query pencarian")):
     try:
         ydl_opts = get_ydl_opts(download=False)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Search YouTube
             info = ydl.extract_info(f"ytsearch10:{q}", download=False)
             results = []
             for entry in info['entries']:
@@ -49,27 +51,22 @@ async def search(q: str = Query(..., description="Query pencarian")):
 @app.get("/api/download")
 async def download(url: str = Query(..., description="URL YouTube")):
     try:
-        # Pake yt-dlp buat dapet direct link audio (biasanya m4a/webm)
-        # Ini gantiin fungsi convert karena link ini bisa langsung diputar/download
         ydl_opts = get_ydl_opts(download=True)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # PENTING: extract_info bakal ngambil direct link yang fresh
             info = ydl.extract_info(url, download=False)
-            
-            # Cari format audio terbaik
             audio_url = info.get('url')
-            title = info.get('title')
             
+            if not audio_url:
+                raise Exception("Gagal dapet direct link")
+                
             return {
                 "success": True,
-                "title": title,
-                "data": audio_url,  # Ini link direct ke server Google/YouTube
-                "format": info.get('ext'),
+                "title": info.get('title'),
+                "data": audio_url,
+                "format": info.get('ext', 'm4a'),
                 "thumbnail": info.get('thumbnail')
             }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Mock route untuk convert (biar bot lo ga error pas manggil)
-@app.get("/api/convert")
-async def convert():
-    return {"message": "Direct link provided in /download, no conversion needed on server side."}
+        # Kirim error detail ke bot biar lo tau kenapa gagal
+        raise HTTPException(status_code=500, detail=f"YouTube Block: {str(e)}")
